@@ -12,6 +12,7 @@ from semantic_kernel.agents.strategies import TerminationStrategy, SequentialSel
 from semantic_kernel.contents.chat_message_content import ChatMessageContent
 from semantic_kernel.contents.utils.author_role import AuthorRole
 from semantic_kernel.functions.kernel_function_decorator import kernel_function
+import random
 
 
 SYSTEM_ARCHITECT = "SYSTEM_ARCHITECT"
@@ -24,11 +25,16 @@ Actions:
 - Generate message content to the Domain Architect using the Architects Notification Tool with the solution design link and resource types.
 
 The output of the agent must always be in the below format for each action and ordered numerically:
+
+SYSTEM ARCHITECT ACTIONS:
+
+========================================================
+
 Tool Name: <friendly name of the tool used only>,
 Tool Input: <input to the tool used>
 Tool Output: <output of the tool used>
 
-If all actions have been completed or there are no further actions needed, respond with "No action needed."
+If all actions have been completed or there are no further actions needed, respond with "No action needed. System Architect"
 
 RULES:
 - Always respond.
@@ -38,14 +44,30 @@ RULES:
 
 DOMAIN_ARCHITECT = "DOMAIN_ARCHITECT"
 DOMAIN_ARCHITECT_INSTRUCTIONS = """
-You are a domain architect.
+You are a domain architect. 
 
-Reply always only with "I am a domain architect." the first time you are asked.
+Actions:
+- Use Validation Tool to simulate the validation of the solution design and resource types.
+- Generate message content to the System Architect using the Architects Notification Tool with the validation result.
 
-If all actions have been completed or there are no further actions needed, respond with "No action needed."
+The output of the agent must always be in the below format for each action and ordered numerically:
+
+DOMAIN ARCHITECT ACTIONS:
+
+========================================================
+
+Tool Name: <friendly name of the tool used>,
+Tool Input: <input to the tool used>
+Tool Output: <output of the tool used>
+
+========================================================
+
+If all actions have been completed, respond with "No action needed. Domain Architect"
 
 RULES:
-- <PLACEHOLDER RULES>
+- Always respond.
+- Always confirm through a message that you have completed the action and provide the output of the Tool used.
+- If you cannot complete the action, respond with "Cannot complete the [action name] action."
 """
 
 async def main():
@@ -86,7 +108,7 @@ async def main():
         agent_domain_architect = AzureAIAgent(
             client=client,
             definition=domain_architect_agent_definition,
-            plugins=[],
+            plugins=[ArchitectsNotificationPlugin(), SimulateValidationPlugin()],
         )
     
 
@@ -127,6 +149,10 @@ class SelectionStrategy(SequentialSelectionStrategy):
     async def select_agent(self, agents, history):
         """"Check which agent should take the next turn in the chat."""
 
+        # # print the history and history[-1]
+        # print(f"History Name: {history[-1].name if history else 'No history'}")
+        # print(f"History Role: {history[-1].role if history else 'No history'}")
+
         # The System Architect should always go first or after the user
         if not history or history[-1].role == AuthorRole.USER:
             agent_name = SYSTEM_ARCHITECT
@@ -137,97 +163,19 @@ class SelectionStrategy(SequentialSelectionStrategy):
         return next((agent for agent in agents if agent.name == agent_name), None)
 
 
-# class for temination strategy
+# class for termination strategy
 class ApprovalTerminationStrategy(TerminationStrategy):
-    """A strategy for determining when an agent should terminate."""
+    """A strategy for determining when the chat should terminate after both agents have run."""
 
-    # End the chat if the agent has indicated there is no action needed
     async def should_agent_terminate(self, agent, history):
-        """Check if the agent should terminate."""
-        return "no action needed" in history[-1].content.lower()
-
-
-# class for DevOps functions
-class DevopsPlugin:
-    """A plugin that performs developer operation tasks."""
-    
-    def append_to_log_file(self, filepath: str, content: str) -> None:
-        with open(filepath, 'a', encoding='utf-8') as file:
-            file.write('\n' + textwrap.dedent(content).strip())
-
-    @kernel_function(description="A function that restarts the named service")
-    def restart_service(self, service_name: str = "", logfile: str = "") -> str:
-        log_entries = [
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ALERT  DevopsAssistant: Multiple failures detected in {service_name}. Restarting service.",
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] INFO  {service_name}: Restart initiated.",
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] INFO  {service_name}: Service restarted successfully.",
-        ]
-
-        log_message = "\n".join(log_entries)
-        self.append_to_log_file(logfile, log_message)
-        
-        return f"Service {service_name} restarted successfully."
-
-    @kernel_function(description="A function that rollsback the transaction")
-    def rollback_transaction(self, logfile: str = "") -> str:
-        log_entries = [
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ALERT  DevopsAssistant: Transaction failure detected. Rolling back transaction batch.",
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] INFO   TransactionProcessor: Rolling back transaction batch.",
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] INFO   Transaction rollback completed successfully.",
-        ]
-
-        log_message = "\n".join(log_entries)
-        self.append_to_log_file(logfile, log_message)
-        
-        return "Transaction rolled back successfully."
-
-    @kernel_function(description="A function that redeploys the named resource")
-    def redeploy_resource(self, resource_name: str = "", logfile: str = "") -> str:
-        log_entries = [
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ALERT  DevopsAssistant: Resource deployment failure detected in '{resource_name}'. Redeploying resource.",
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] INFO   DeploymentManager: Redeployment request submitted.",
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] INFO   DeploymentManager: Service successfully redeployed, resource '{resource_name}' created successfully.",
-        ]
-
-        log_message = "\n".join(log_entries)
-        self.append_to_log_file(logfile, log_message)
-        
-        return f"Resource '{resource_name}' redeployed successfully."
-
-    @kernel_function(description="A function that increases the quota")
-    def increase_quota(self, logfile: str = "") -> str:
-        log_entries = [
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ALERT  DevopsAssistant: High request volume detected. Increasing quota.",
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] INFO   APIManager: Quota increase request submitted.",
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] INFO   APIManager: Quota successfully increased to 150% of previous limit.",
-        ]
-
-        log_message = "\n".join(log_entries)
-        self.append_to_log_file(logfile, log_message)
-
-        return "Successfully increased quota."
-
-    @kernel_function(description="A function that escalates the issue")
-    def escalate_issue(self, logfile: str = "") -> str:
-        log_entries = [
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ALERT  DevopsAssistant: Cannot resolve issue.",
-            f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ALERT  DevopsAssistant: Requesting escalation.",
-        ]
-        
-        log_message = "\n".join(log_entries)
-        self.append_to_log_file(logfile, log_message)
-        
-        return "Submitted escalation request."
-
-
-# class for Log File functions
-class LogFilePlugin:
-    """A plugin that reads and writes log files."""
-
-    @kernel_function(description="Accesses the given file path string and returns the file contents as a string")
-    def read_log_file(self, filepath: str = "") -> str:
-        with open(filepath, 'r', encoding='utf-8') as file:
-            return file.read()
+        """Terminate only if both agents have responded with 'no action needed'."""
+        if len(history) < 2:
+            return False
+        last_two = history[-2:]
+        return all(
+            msg.content and "no action needed" in msg.content.lower()
+            for msg in last_two
+        )
 
 # class for Solution Design retrieval plugin
 class SolutionDesignPlugin:
@@ -262,7 +210,7 @@ class ArchitectsNotificationPlugin:
     """A plugin that generates notification messages."""
 
     @kernel_function(description="Generates an message content to the Domain Architect with the solution design link and resource types")
-    def generate_email_content(self, solution_design_link: str = "", resource_types: str = "") -> str:
+    def message_for_domain_architect(self, solution_design_link: str = "", resource_types: str = "") -> str:
         email_content = (
             f"Dear Domain Architect,\n\n"
             f"Please find the solution design link: {solution_design_link}\n\n"
@@ -270,8 +218,29 @@ class ArchitectsNotificationPlugin:
             f"Best regards,\nSystem Architect"
         )
         return email_content
-
     
+    @kernel_function(description="Generates a message content to the System Architect with the vaidation result")
+    def message_for_system_architect(self, validation_result: str = "") -> str:
+        message_content = (
+            f"Dear System Architect,\n\n"
+            f"The validation result is as follows:\n{validation_result}\n\n"
+            f"Best regards,\nDomain Architect"
+        )
+        return message_content
+
+
+# class for Validation Plugin which will be used by domain architect agent to simulate validation outcome for the solution design and resource types
+class SimulateValidationPlugin:
+    """A plugin that simulates the validation of the solution design and resource types."""
+
+    @kernel_function(description="Generate validation outcome of the solution design and resource types")
+    def validate_solution_design(self) -> str:
+        # Simulate random validation logic
+        if random.choice([True, False]):
+            return "Solution design and resource types are valid."
+        else:
+            return "Invalid solution design or resource types."
+
 # Start the app
 if __name__ == "__main__":
     asyncio.run(main())
