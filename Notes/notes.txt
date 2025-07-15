@@ -1,0 +1,4 @@
+https://mishr-mcyx6h6n-swedencentral.services.ai.azure.com/api/projects/mishr-mcyx6h6n-swedence-project
+8BdLiQBjXKNjsZTHikcVhLkyuzkwKeliREuqJ50O8K4elsJ73Ij8JQQJ99BGACfhMk5XJ3w3AAAAACOGzCsx
+https://mishr-mcyx6h6n-swedencentral.cognitiveservices.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2025-01-01-preview
+8BdLiQBjXKNjsZTHikcVhLkyuzkwKeliREuqJ50O8K4elsJ73Ij8JQQJ99BGACfhMk5XJ3w3AAAAACOGzCsx
