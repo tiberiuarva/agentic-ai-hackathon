@@ -1,2 +1,6 @@
 # ignore labenv folder
 labenv/
+
+# ignore .env file
+.env
+.env.local
