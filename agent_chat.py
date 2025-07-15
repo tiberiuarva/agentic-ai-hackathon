@@ -13,49 +13,44 @@ from semantic_kernel.contents.chat_message_content import ChatMessageContent
 from semantic_kernel.contents.utils.author_role import AuthorRole
 from semantic_kernel.functions.kernel_function_decorator import kernel_function
 
-INCIDENT_MANAGER = "INCIDENT_MANAGER"
-INCIDENT_MANAGER_INSTRUCTIONS = """
-Analyze the given log file or the response from the devops assistant.
-Recommend which one of the following actions should be taken:
 
-Restart service {service_name}
-Rollback transaction
-Redeploy resource {resource_name}
-Increase quota
+SYSTEM_ARCHITECT = "SYSTEM_ARCHITECT"
+SYSTEM_ARCHITECT_INSTRUCTIONS = """
+You are a system architect. 
 
-If there are no issues or if the issue has already been resolved, respond with "INCIDENT_MANAGER > No action needed."
-If none of the options resolve the issue, respond with "Escalate issue."
+Actions:
+- Use Solution Design Tool to retrieve solution designs link based on the design name. 
+- Use Azure Resource Types Tool to retrieve Azure Resource Types for a specific Azure Subscription using the OAR Id Tag.
+- Generate message content to the Domain Architect using the Architects Notification Tool with the solution design link and resource types.
+
+The output of the agent must always be in the below format for each action and ordered numerically:
+Tool Name: <friendly name of the tool used only>,
+Tool Input: <input to the tool used>
+Tool Output: <output of the tool used>
+
+If all actions have been completed or there are no further actions needed, respond with "No action needed."
 
 RULES:
-- Do not perform any corrective actions yourself.
-- Read the log file on every turn.
-- Prepend your response with this text: "INCIDENT_MANAGER > {logfilepath} | "
-- Only respond with the corrective action instructions.
+- Always respond.
+- Always confirm through a message that you have completed the action and provide the output of the Tool used.
+- If you cannot complete the action, respond with "Cannot complete the [action name] action."
 """
 
-DEVOPS_ASSISTANT = "DEVOPS_ASSISTANT"
-DEVOPS_ASSISTANT_INSTRUCTIONS = """
-Read the instructions from the INCIDENT_MANAGER and apply the appropriate resolution function. 
-Return the response as "{function_response}"
-If the instructions indicate there are no issues or actions needed, 
-take no action and respond with "No action needed."
+DOMAIN_ARCHITECT = "DOMAIN_ARCHITECT"
+DOMAIN_ARCHITECT_INSTRUCTIONS = """
+You are a domain architect.
+
+Reply always only with "I am a domain architect." the first time you are asked.
+
+If all actions have been completed or there are no further actions needed, respond with "No action needed."
 
 RULES:
-- Use the instructions provided.
-- Do not read any log files yourself.
-- Prepend your response with this text: "DEVOPS_ASSISTANT > "
+- <PLACEHOLDER RULES>
 """
 
 async def main():
     # Clear the console
     os.system('cls' if os.name=='nt' else 'clear')
-
-    # Get the log files
-    print("Getting log files...\n")
-    script_dir = Path(__file__).parent  # Get the directory of the script
-    src_path = script_dir / "sample_logs"
-    file_path = script_dir / "logs"
-    shutil.copytree(src_path, file_path, dirs_exist_ok=True)
 
     # Get the Azure AI Agent settings
     ai_agent_settings = AzureAIAgentSettings()
@@ -65,88 +60,63 @@ async def main():
             exclude_managed_identity_credential=True) as creds,
         AzureAIAgent.create_client(credential=creds) as client,
     ):
-    
-        # Create the incident manager agent on the Azure AI agent service
-        incident_agent_definition = await client.agents.create_agent(
-            model = ai_agent_settings.model_deployment_name,
-            name = INCIDENT_MANAGER,
-            instructions = INCIDENT_MANAGER_INSTRUCTIONS
-        )
-
-        # Create a Semantic Kernel agent for the Azure AI incident manager agent
-        agent_incident = AzureAIAgent(
-            client=client,
-            definition=incident_agent_definition,
-            plugins=[LogFilePlugin()],
-        )
-
-        # Create the devops agent on the Azure AI agent service
-        devops_agent_definition = await client.agents.create_agent(
+        
+        # Create the system architect agent on the Azure AI agent service
+        system_architect_agent_definition = await client.agents.create_agent(
             model=ai_agent_settings.model_deployment_name,
-            name=DEVOPS_ASSISTANT,
-            instructions=DEVOPS_ASSISTANT_INSTRUCTIONS
+            name=SYSTEM_ARCHITECT,
+            instructions=SYSTEM_ARCHITECT_INSTRUCTIONS
         )
 
-        # Create a Semantic Kernel agent for the devops Azure AI agent
-        agent_devops = AzureAIAgent(
+        # Create a Semantic Kernel agent for the Azure AI system architect agent
+        agent_system_architect = AzureAIAgent(
             client=client,
-            definition=devops_agent_definition,
-            plugins=[DevopsPlugin()]
+            definition=system_architect_agent_definition,
+            plugins=[SolutionDesignPlugin(), AzureResourceTypesPlugin(), ArchitectsNotificationPlugin()],
         )
+
+        # Create the domain architect agent on the Azure AI agent service
+        domain_architect_agent_definition = await client.agents.create_agent(
+            model=ai_agent_settings.model_deployment_name,
+            name=DOMAIN_ARCHITECT,
+            instructions=DOMAIN_ARCHITECT_INSTRUCTIONS
+        )
+
+        # Create a Semantic Kernel agent for the Azure AI domain architect agent
+        agent_domain_architect = AzureAIAgent(
+            client=client,
+            definition=domain_architect_agent_definition,
+            plugins=[],
+        )
+    
 
         # Add the agents to a group chat with a custom termination and selection strategy
         chat = AgentGroupChat(
-            agents=[agent_incident, agent_devops],
+            agents=[agent_system_architect, agent_domain_architect],
             termination_strategy=ApprovalTerminationStrategy(
-                agents=[agent_incident], 
+                agents=[agent_system_architect, agent_domain_architect], 
                 maximum_iterations=10, 
                 automatic_reset=True
             ),
-            selection_strategy=SelectionStrategy(agents=[agent_incident,agent_devops]),      
+            selection_strategy=SelectionStrategy(agents=[agent_system_architect, agent_domain_architect]),      
         )
 
-         # Process log files
-        for filename in os.listdir(file_path):
-            logfile_msg = ChatMessageContent(role=AuthorRole.USER, content=f"USER > {file_path}/{filename}")
-            await asyncio.sleep(30) # Wait to reduce TPM
-            print(f"\nReady to process log file: {filename}\n")
+        message = "The design name is 'Payment Processing System' and the OAR Id Tag is 'OAR-12345'."
 
+        # Append the current log file to the chat
+        await chat.add_chat_message(message)
+        print()
 
-            # Append the current log file to the chat
-            await chat.add_chat_message(logfile_msg)
-            print()
-
-            try:
-                print()
-
-                # Invoke a response from the agents
-                async for response in chat.invoke():
-                    if response is None or not response.name:
-                        continue
-                    print(f"{response.content}")
-
-                
-            except Exception as e:
-                print(f"Error during chat invocation: {e}")
-                # If TPM rate exceeded, wait 60 secs
-                if "Rate limit is exceeded" in str(e):
-                    print ("Waiting...")
-                    await asyncio.sleep(60)
-                    continue
-                else:
-                    break
+        # Invoke a response from the agents
+        async for response in chat.invoke():
+            if response is None or not response.name:
+                continue
+            print(f"{response.content}")
         
-        # Delete the chat
-        await chat.delete()
-        print("\nChat completed. All messages processed.\n")
-        # Delete the agents
-        await agent_incident.delete()
-        await agent_devops.delete()
-        print("Agents deleted successfully.\n")
-        # Close the client
-        await client.close()
-        print("Client closed successfully.\n")
-
+        # Clean up all agents
+        await client.agents.delete_agent(agent_system_architect.id)
+        await client.agents.delete_agent(agent_domain_architect.id)
+        print("\nAgents cleaned up successfully.")
 
 
 # class for selection strategy
@@ -157,13 +127,14 @@ class SelectionStrategy(SequentialSelectionStrategy):
     async def select_agent(self, agents, history):
         """"Check which agent should take the next turn in the chat."""
 
-        # The Incident Manager should go after the User or the Devops Assistant
-        if (history[-1].name == DEVOPS_ASSISTANT or history[-1].role == AuthorRole.USER):
-            agent_name = INCIDENT_MANAGER
+        # The System Architect should always go first or after the user
+        if not history or history[-1].role == AuthorRole.USER:
+            agent_name = SYSTEM_ARCHITECT
             return next((agent for agent in agents if agent.name == agent_name), None)
-        
-        # Otherwise it is the Devops Assistant's turn
-        return next((agent for agent in agents if agent.name == DEVOPS_ASSISTANT), None)
+    
+        # Otherwise it should be the Domain Architect
+        agent_name = DOMAIN_ARCHITECT
+        return next((agent for agent in agents if agent.name == agent_name), None)
 
 
 # class for temination strategy
@@ -258,20 +229,49 @@ class LogFilePlugin:
         with open(filepath, 'r', encoding='utf-8') as file:
             return file.read()
 
+# class for Solution Design retrieval plugin
+class SolutionDesignPlugin:
+    """A plugin that retrieves the link of solution designs from the Enterprise Architecture repository."""
 
-# # Start the app
-# if __name__ == "__main__":
-#     asyncio.run(main())
+    @kernel_function(description="Retrieves the link of solution designs from the Enterprise Architecture repository")
+    def get_solution_design_link(self, design_name: str = "") -> str:
+        # Simulate a retrieval from a repository
+        solution_design_link = f"https://ea-repository.example.com/designs/{design_name}"
+        return f"Solution design for {design_name} can be found at following link: {solution_design_link}"
+    
+# class for retrieving Azure Resource Types from Azure Resource Manager for a specific Azure Subscription found after a KQL query using the OAR Id Tag.
+class AzureResourceTypesPlugin:
+    """A plugin that retrieves Azure Resource Types from Azure Resource Manager for a specific Azure Subscription."""
+
+    @kernel_function(description="Retrieves Azure Resource Types for a specific Azure Subscription")
+    def get_azure_resource_types(self, oar_id: str = "") -> str:
+        # Simulate retrieval of resource types
+        resource_types = [
+            "Microsoft.Compute/virtualMachines",
+            "Microsoft.Storage/storageAccounts",
+            "Microsoft.Network/virtualNetworks"
+        ]
+        result_lines = [
+            f"Found Azure Subscription for OAR Id {oar_id} with the following Azure resource types:",
+            *[f"- {resource_type}" for resource_type in resource_types]
+        ]
+        return "\n".join(result_lines)
+
+# class for Communication Plugin which will be used by system architect and domain architect agents to generate communication messages
+class ArchitectsNotificationPlugin:
+    """A plugin that generates notification messages."""
+
+    @kernel_function(description="Generates an message content to the Domain Architect with the solution design link and resource types")
+    def generate_email_content(self, solution_design_link: str = "", resource_types: str = "") -> str:
+        email_content = (
+            f"Dear Domain Architect,\n\n"
+            f"Please find the solution design link: {solution_design_link}\n\n"
+            f"The following Azure Resource Types are available for the OAR Id Tag:\n{resource_types}\n\n"
+            f"Best regards,\nSystem Architect"
+        )
+        return email_content
+
+    
+# Start the app
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except RuntimeError as e:
-        if str(e) != "Event loop is closed":
-            raise
-    finally:
-        # Explicitly close the event loop to avoid warnings on Windows
-        try:
-            loop = asyncio.get_event_loop()
-            loop.close()
-        except Exception:
-            pass
+    asyncio.run(main())
