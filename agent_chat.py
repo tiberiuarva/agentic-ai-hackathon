@@ -4,6 +4,7 @@ import textwrap
 from datetime import datetime
 from pathlib import Path
 import shutil
+import base64
 
 from azure.identity.aio import DefaultAzureCredential
 from semantic_kernel.agents import AgentGroupChat
@@ -49,6 +50,7 @@ You are a domain architect.
 Actions:
 - Use Validation Tool to simulate the validation of the solution design and resource types.
 - Generate message content to the System Architect using the Architects Notification Tool with the validation result.
+- Use Azure Services Image Extraction Tool to extract Azure services icons/logos from an image and return a prompt with the base64 image for the agent to send to the LLM. Then the LLM will extract the Azure services from the image and return a list of Azure services.
 
 The output of the agent must always be in the below format for each action and ordered numerically:
 
@@ -108,7 +110,7 @@ async def main():
         agent_domain_architect = AzureAIAgent(
             client=client,
             definition=domain_architect_agent_definition,
-            plugins=[ArchitectsNotificationPlugin(), SimulateValidationPlugin()],
+            plugins=[ArchitectsNotificationPlugin(), SimulateValidationPlugin(), AzureServicesImageExtractionPlugin()],
         )
     
 
@@ -242,6 +244,27 @@ class SimulateValidationPlugin:
             return "Solution design and resource types are valid."
         else:
             return "Invalid solution design or resource types."
+        
+
+class AzureServicesImageExtractionPlugin:
+    """Extracts Azure services icons/logos from an image and returns a prompt with the base64 image for the agent to send to the LLM."""
+
+    @kernel_function(description="Prepare a prompt and base64 image for Azure services icon/logo extraction using GPT-4o vision capabilities")
+    def extract_azure_services_from_image(self, image_path: str = "./images/sample-01.png") -> str:
+        try:
+            with open(image_path, "rb") as img_file:
+                image_base64 = base64.b64encode(img_file.read()).decode("utf-8")
+        except Exception as e:
+            return f"Error reading image: {e}"
+
+        prompt = (
+            "You are an expert in Azure services. "
+            "Given the following image (base64 encoded), extract and list all Azure services icons/logos you can identify. "
+            "Return only the names of the Azure services you see, one per line.\n\n"
+            f"Image (base64): {image_base64}"
+        )
+        return prompt
+
 
 # Start the app
 if __name__ == "__main__":
