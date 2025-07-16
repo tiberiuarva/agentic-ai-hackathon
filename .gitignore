@@ -4,3 +4,4 @@ labenv/
 # ignore .env file
 .env
 .env.local
+images/
