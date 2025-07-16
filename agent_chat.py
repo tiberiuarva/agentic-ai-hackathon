@@ -34,7 +34,7 @@ Tool Name: <friendly name of the tool used only>,
 Tool Input: <input to the tool used>
 Tool Output: <output of the tool used>
 
-If all actions have been completed or there are no further actions needed, respond with "No action needed. System Architect"
+If all actions have been completed or there are no further actions needed, respond with "No action needed - System Architect"
 
 RULES:
 - Always respond.
@@ -62,7 +62,7 @@ Tool Output: <output of the tool used>
 
 ========================================================
 
-If all actions have been completed, respond with "No action needed. Domain Architect"
+If all actions have been completed, respond with "No action needed - Domain Architect"
 
 RULES:
 - Always respond.
@@ -149,7 +149,7 @@ class SelectionStrategy(SequentialSelectionStrategy):
     async def select_agent(self, agents, history):
         """"Check which agent should take the next turn in the chat."""
 
-        # # print the history and history[-1]
+        # print the history and history[-1]
         # print(f"History Name: {history[-1].name if history else 'No history'}")
         # print(f"History Role: {history[-1].role if history else 'No history'}")
 
@@ -168,14 +168,16 @@ class ApprovalTerminationStrategy(TerminationStrategy):
     """A strategy for determining when the chat should terminate after both agents have run."""
 
     async def should_agent_terminate(self, agent, history):
-        """Terminate only if both agents have responded with 'no action needed'."""
-        if len(history) < 2:
-            return False
-        last_two = history[-2:]
-        return all(
-            msg.content and "no action needed" in msg.content.lower()
-            for msg in last_two
+        """Terminate only if both agents have responded with 'no action needed' in the entire history."""
+        system_architect_confirmed = any(
+            msg.name == SYSTEM_ARCHITECT and msg.content and "no action needed" in msg.content.lower()
+            for msg in history
         )
+        domain_architect_confirmed = any(
+            msg.name == DOMAIN_ARCHITECT and msg.content and "no action needed" in msg.content.lower()
+            for msg in history
+        )
+        return system_architect_confirmed and domain_architect_confirmed
 
 # class for Solution Design retrieval plugin
 class SolutionDesignPlugin:
