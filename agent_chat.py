@@ -250,7 +250,7 @@ class AzureServicesImageExtractionPlugin:
     """Extracts Azure services icons/logos from an image and returns a prompt with the base64 image for the agent to send to the LLM."""
 
     @kernel_function(description="Prepare a prompt and base64 image for Azure services icon/logo extraction using GPT-4o vision capabilities")
-    def extract_azure_services_from_image(self, image_path: str = "./images/sample-01.png") -> str:
+    def azure_services_from_image(self, image_path: str = "./images/sample-01.png") -> str:
         try:
             with open(image_path, "rb") as img_file:
                 image_base64 = base64.b64encode(img_file.read()).decode("utf-8")
